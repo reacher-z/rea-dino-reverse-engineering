@@ -1,0 +1,24 @@
+# macOS metadata
+.DS_Store
+._*
+.Spotlight-V100/
+.Trashes/
+
+# Editor settings and temporary files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.tmp
+*.bak
+
+# Logs and local dependency/cache artifacts
+*.log
+node_modules/
+.cache/
+coverage/
+
+# Optional local scratch output; retain HTML, docs, and real screenshots
+/tmp/
+/scratch/

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Little Runner — Speed Lab</title>
+<style>
+  :root { color-scheme: light; font-family: system-ui, sans-serif; color: #25352e; background: #f4f2eb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+  main { width: min(920px, 100%); }
+  .eyebrow { color: #637869; text-transform: uppercase; letter-spacing: .18em; font-size: 12px; font-weight: 700; }
+  h1 { font-size: clamp(32px, 6vw, 52px); margin: 10px 0; letter-spacing: -.05em; }
+  .subtitle { color: #657369; margin: 0 0 28px; line-height: 1.6; }
+  .stage { background: #fffef8; border: 1px solid #d8ddd0; border-radius: 20px; overflow: hidden; box-shadow: 0 16px 48px #25352e0a; }
+  .stats { display: flex; gap: 24px; padding: 20px 24px 0; font: 13px ui-monospace, monospace; }
+  .stats strong { color: #25855c; }
+  canvas { display: block; width: 100%; height: auto; touch-action: manipulation; }
+  .controls { padding: 24px; display: grid; grid-template-columns: 1fr auto; gap: 20px 32px; border-top: 1px solid #e5e8dd; }
+  label { font-size: 14px; font-weight: 600; }
+  .range-label { display: flex; justify-content: space-between; }
+  input[type=range] { width: 100%; margin: 18px 0 4px; accent-color: #25855c; }
+  .toggle { display: flex; align-items: center; gap: 8px; }
+  input[type=checkbox] { accent-color: #25855c; width: 18px; height: 18px; }
+  button { border: 0; border-radius: 9px; padding: 12px 18px; background: #253f32; color: white; font: inherit; font-size: 14px; cursor: pointer; }
+  button:hover { background: #356046; }
+  button:focus-visible, input:focus-visible { outline: 3px solid #e6a942; outline-offset: 4px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+  .secondary { background: #e7ebdf; color: #25352e; }
+  .secondary:hover { background: #d9e1ce; }
+  .note { color: #657369; font-size: 13px; line-height: 1.6; margin: 0; }
+  #test-results { white-space: pre-wrap; font: 12px/1.7 ui-monospace, monospace; }
+  footer { margin-top: 18px; display: flex; justify-content: space-between; gap: 16px; }
+  @media (max-width: 600px) { body { padding: 16px; } .controls { grid-template-columns: 1fr; } footer { flex-direction: column; } }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">An endless run · A tiny speed experiment</div>
+  <h1>Little Runner</h1>
+  <p class="subtitle">Jump the desert plants. Watch a small increment become a faster world.</p>
+  <section class="stage" aria-label="Runner game and speed controls">
+    <div class="stats"><span>SCORE <strong id="score">00000</strong></span><span>BEST <strong id="best">00000</strong></span><span id="status" role="status">Ready</span></div>
+    <canvas id="game" width="900" height="300" aria-label="Dinosaur runner. Space or Arrow Up to jump; Enter to restart." tabindex="0"></canvas>
+    <div class="controls">
+      <div>
+        <label class="range-label" for="speed"><span>Current speed</span><output id="speed-value" for="speed">6.000</output></label>
+        <input id="speed" type="range" min="1" max="20" step="0.001" value="6">
+        <p class="note">1–20 · Drag to set speed immediately.</p>
+      </div>
+      <div>
+        <label class="toggle"><input id="auto" type="checkbox" checked> Auto Acceleration</label>
+        <div class="actions"><button id="jump" type="button">Start / Jump</button><button id="restart" class="secondary" type="button">Restart</button></div>
+      </div>
+      <p class="note" style="grid-column: 1 / -1">Auto OFF holds the selected speed. Switching ON resumes +0.001 from the current speed on each playing, collision-free update below 13. Speeds at or above 13 stay unchanged. Restart starts at 6 with Auto ON, or retains your speed with Auto OFF.</p>
+    </div>
+  </section>
+  <footer><p class="note">Space / ↑ to jump · Enter to restart · Tap the scene to play</p><button id="tests" class="secondary" type="button">Run speed tests</button></footer>
+  <pre id="test-results" role="status" aria-live="polite"></pre>
+</main>
+<script>
+'use strict';
+/* Deliberate differences from the inspected game:
+   Original vector artwork, simplified jump physics, obstacles and scoring;
+   no intro, ducking, audio, mobile speed reduction or external assets.
+   One logical update per requestAnimationFrame while playing and visible.
+   Movement uses elapsed time capped at 50 ms; hidden tabs pause progression.
+   Acceleration uses update count, never elapsed time, with no maximum clamp.
+   Manual speed may exceed 13; Auto ON resumes from that speed without lowering it.
+   Restart uses 6 in auto mode and the selected speed in manual mode.
+   Best score is kept for this page session, including runs ended by restart.
+   Swept rectangle collision checks cover movement between frame endpoints.
+   Tests run production logic synchronously with saved/restored state, outside RAF.
+*/
+
+// SPEED_MODEL_START — pure, independently testable speed model.
+function advanceSpeed(speed, autoEnabled) {
+  return autoEnabled && speed < 13 ? speed + 0.001 : speed;
+}
+
+function runSpeedTests() {
+  const tolerance = 1e-9;
+  const results = [];
+  function check(name, actual, expected) {
+    const passed = Math.abs(actual - expected) <= tolerance;
+    results.push({ name, actual, expected, passed });
+  }
+  // IEEE-754 additions leave update 7000 just below 13; update 7001 adds again.
+  // The threshold rule therefore settles near 13.001 rather than exactly 13.
+  for (const [count, expected] of [[0, 6], [1000, 7], [4000, 10], [10000, 13.001]]) {
+    let simulatedSpeed = 6;
+    for (let i = 0; i < count; i++) simulatedSpeed = advanceSpeed(simulatedSpeed, true);
+    check(`${count} eligible updates`, simulatedSpeed, expected);
+  }
+  check('Auto OFF holds speed', advanceSpeed(8.25, false), 8.25);
+  check('Auto ON resumes', advanceSpeed(8.25, true), 8.251);
+  check('At threshold stays unchanged', advanceSpeed(13, true), 13);
+  check('Above threshold stays unchanged', advanceSpeed(20, true), 20);
+  check('Threshold overshoot is not clamped', advanceSpeed(12.9995, true), 13.0005);
+  let boundarySpeed = 6;
+  for (let i = 1; i <= 7002; i++) {
+    boundarySpeed = advanceSpeed(boundarySpeed, true);
+    if (i === 6999) check('Boundary update 6999', boundarySpeed, 12.999);
+    if (i === 7000) {
+      check('Boundary update 7000', boundarySpeed, 13);
+      check('Update 7000 is strictly below threshold', Number(boundarySpeed < 13), 1);
+    }
+    if (i === 7001) {
+      check('Boundary update 7001', boundarySpeed, 13.001);
+      check('Update 7001 is strictly above threshold', Number(boundarySpeed > 13), 1);
+    }
+    if (i === 7002) check('Boundary update 7002 holds', boundarySpeed, 13.001);
+  }
+  if (results.some(result => !result.passed)) {
+    throw new Error(JSON.stringify(results.filter(result => !result.passed)));
+  }
+  return results;
+}
+// SPEED_MODEL_END
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const speedSlider = document.getElementById('speed');
+const speedValue = document.getElementById('speed-value');
+const autoToggle = document.getElementById('auto');
+const scoreLabel = document.getElementById('score');
+const bestLabel = document.getElementById('best');
+const statusLabel = document.getElementById('status');
+const ground = 235;
+const dinosaur = { x: 78, y: ground - 48, width: 36, height: 48, velocity: 0 };
+let currentSpeed = 6;
+const initialSpeed = currentSpeed; // Capture actual production initialization for tests.
+let state = 'ready';
+let obstacles = [];
+let distance = 0;
+let best = 0;
+let spawnDistance = 420;
+let lastTime = null;
+
+function syncSpeed() {
+  speedValue.value = currentSpeed.toFixed(3);
+  speedSlider.value = String(currentSpeed);
+}
+function resetGame() {
+  best = Math.max(best, Math.floor(distance / 10));
+  if (autoToggle.checked) currentSpeed = 6;
+  dinosaur.y = ground - dinosaur.height;
+  dinosaur.velocity = 0;
+  obstacles = [];
+  distance = 0;
+  spawnDistance = 420;
+  state = 'playing';
+  lastTime = null;
+  statusLabel.textContent = 'Running';
+  syncSpeed();
+}
+function jump() {
+  if (state !== 'playing') resetGame();
+  if (dinosaur.y >= ground - dinosaur.height - 0.01) dinosaur.velocity = -650;
+}
+function collides(obstacle) {
+  // Slightly inset dinosaur rectangle keeps collisions forgiving and predictable.
+  return dinosaur.x + 5 < obstacle.x + obstacle.width &&
+    dinosaur.x + dinosaur.width - 5 > obstacle.x &&
+    dinosaur.y + 5 < ground &&
+    dinosaur.y + dinosaur.height - 3 > ground - obstacle.height;
+}
+
+function sweptCollides(obstacle, movement, previousY) {
+  // Relative-motion slab intervals: both axes must overlap at the same time.
+  function interval(left, right, otherLeft, otherRight, travel) {
+    if (travel === 0) return left < otherRight && right > otherLeft ? [-Infinity, Infinity] : [Infinity, -Infinity];
+    const a = (left - otherRight) / travel;
+    const b = (right - otherLeft) / travel;
+    return [Math.min(a, b), Math.max(a, b)];
+  }
+  const x = interval(dinosaur.x + 5, dinosaur.x + dinosaur.width - 5,
+    obstacle.x, obstacle.x + obstacle.width, -movement);
+  const y = interval(previousY + 5, previousY + dinosaur.height - 3,
+    ground - obstacle.height, ground, previousY - dinosaur.y);
+  return Math.max(0, x[0], y[0]) < Math.min(1, x[1], y[1]);
+}
+
+function updateGame(deltaSeconds) {
+  if (state !== 'playing') return;
+  const movement = currentSpeed * 60 * deltaSeconds;
+  const previousY = dinosaur.y;
+  dinosaur.velocity += 1900 * deltaSeconds;
+  dinosaur.y += dinosaur.velocity * deltaSeconds;
+  if (dinosaur.y >= ground - dinosaur.height) {
+    dinosaur.y = ground - dinosaur.height;
+    dinosaur.velocity = 0;
+  }
+  const crossedObstacle = obstacles.some(obstacle => sweptCollides(obstacle, movement, previousY));
+  for (const obstacle of obstacles) obstacle.x -= movement;
+  obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > -20);
+  spawnDistance -= movement;
+  if (spawnDistance <= 0) {
+    obstacles.push({ x: canvas.width + 20, width: 22 + Math.random() * 12, height: 30 + Math.random() * 24 });
+    // More room at high speeds preserves a feasible jump/recovery interval.
+    spawnDistance = Math.max(280, currentSpeed * 60 * 0.9) + Math.random() * 200;
+  }
+  if (crossedObstacle || obstacles.some(collides)) {
+    state = 'over';
+    best = Math.max(best, Math.floor(distance / 10));
+    statusLabel.textContent = 'Game over';
+    return; // Collision updates are ineligible for acceleration and scoring.
+  }
+  distance += movement;
+  currentSpeed = advanceSpeed(currentSpeed, autoToggle.checked);
+}
+
+function drawDinosaur() {
+  ctx.fillStyle = state === 'over' ? '#bc674e' : '#2b6a4b';
+  const x = dinosaur.x, y = dinosaur.y;
+  ctx.fillRect(x + 10, y + 19, 22, 23);
+  ctx.fillRect(x + 18, y, 28, 23);
+  ctx.fillRect(x + 27, y + 21, 9, 5);
+  ctx.fillRect(x + 1, y + 19, 14, 10);
+  ctx.fillRect(x - 4, y + 13, 7, 10);
+  const stride = state === 'playing' && dinosaur.velocity === 0 ? Math.sin(distance / 16) * 4 : 0;
+  ctx.fillRect(x + 10, y + 39, 7, 9 + stride);
+  ctx.fillRect(x + 25, y + 39, 7, 9 - stride);
+  ctx.fillStyle = '#fffef8';
+  ctx.fillRect(x + 37, y + 6, 4, 4);
+}
+function renderGame() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#edf0df';
+  ctx.beginPath(); ctx.arc(743, 65, 27, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#dfe5d4'; ctx.lineWidth = 2;
+  for (let i = 0; i < 4; i++) {
+    const x = ((i * 275 - distance * 0.08) % 1100 + 1100) % 1100 - 100;
+    ctx.beginPath(); ctx.moveTo(x, 140); ctx.lineTo(x + 36, 140); ctx.stroke();
+  }
+  ctx.strokeStyle = '#b4c3a5';
+  ctx.beginPath(); ctx.moveTo(0, ground + 1); ctx.lineTo(canvas.width, ground + 1); ctx.stroke();
+  ctx.fillStyle = '#c8d2b8';
+  for (let i = 0; i < 35; i++) {
+    const x = ((i * 31 - distance) % 1085 + 1085) % 1085;
+    ctx.fillRect(x, ground + 12 + (i % 3) * 7, 5 + (i % 4), 2);
+  }
+  ctx.fillStyle = '#637d48';
+  for (const obstacle of obstacles) {
+    ctx.fillRect(obstacle.x, ground - obstacle.height, obstacle.width, obstacle.height);
+    ctx.fillRect(obstacle.x - 7, ground - obstacle.height + 12, 7, 9);
+    ctx.fillRect(obstacle.x - 7, ground - obstacle.height + 4, 4, 12);
+    ctx.fillRect(obstacle.x + obstacle.width, ground - obstacle.height + 18, 7, 8);
+  }
+  drawDinosaur();
+  if (state !== 'playing') {
+    ctx.fillStyle = '#253f32'; ctx.textAlign = 'center';
+    ctx.font = '600 25px system-ui';
+    ctx.fillText(state === 'ready' ? 'A little adventure awaits.' : 'One more run?', 450, 110);
+    ctx.font = '15px system-ui'; ctx.fillStyle = '#657369';
+    ctx.fillText(state === 'ready' ? 'Press Space, ↑ or tap to start' : 'Space / ↑ to retry · Enter to restart', 450, 143);
+  }
+  scoreLabel.textContent = String(Math.floor(distance / 10)).padStart(5, '0');
+  bestLabel.textContent = String(best).padStart(5, '0');
+  syncSpeed();
+}
+
+// Rendering and logical updates share one RAF; test simulations never enter it.
+function updateFrame(timestamp, hidden = document.hidden) {
+  const deltaSeconds = lastTime === null ? 0 : Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+  if (!hidden) updateGame(deltaSeconds);
+}
+function frame(timestamp) {
+  updateFrame(timestamp);
+  renderGame();
+  requestAnimationFrame(frame);
+}
+function resetFrameClock() { lastTime = null; }
+document.addEventListener('visibilitychange', resetFrameClock);
+function handleKeyDown(event) {
+  // Inputs keep native editing/slider/toggle behavior and focus. Buttons retain
+  // native Space/Enter activation; ArrowUp is an explicit game shortcut there.
+  if (event.target.matches('input, textarea, select') || event.target.isContentEditable) return;
+  if (event.target.closest('button') && ['Space', 'Enter'].includes(event.code)) return;
+  if (['Space', 'ArrowUp', 'Enter'].includes(event.code)) {
+    event.preventDefault();
+    if (event.repeat) return;
+    if (event.code === 'Enter') resetGame(); else jump();
+  }
+}
+document.addEventListener('keydown', handleKeyDown);
+canvas.addEventListener('pointerdown', () => { canvas.focus(); jump(); });
+function activateJump() { jump(); canvas.focus({ preventScroll: true }); }
+function activateRestart() { resetGame(); canvas.focus({ preventScroll: true }); }
+document.getElementById('jump').addEventListener('click', activateJump);
+document.getElementById('restart').addEventListener('click', activateRestart);
+speedSlider.addEventListener('input', () => { currentSpeed = Number(speedSlider.value); syncSpeed(); });
+
+function runIntegrationTests() {
+  const saved = { currentSpeed, state, obstacles, distance, best, spawnDistance, lastTime,
+    dinosaur: { ...dinosaur }, auto: autoToggle.checked, slider: speedSlider.value,
+    display: speedValue.value, status: statusLabel.textContent, focus: document.activeElement };
+  const results = [];
+  function check(name, actual, expected) {
+    results.push({ name, actual: Number(actual), expected: Number(expected),
+      passed: Number.isFinite(Number(actual)) && Math.abs(Number(actual) - Number(expected)) <= 1e-9 });
+  }
+  function fixture(speed = 6, auto = true) {
+    autoToggle.checked = auto;
+    currentSpeed = speed;
+    resetGame();
+    currentSpeed = speed;
+    best = 0;
+    spawnDistance = Infinity; // No randomness: fixtures explicitly supply obstacles.
+  }
+  function key(code, target = canvas, repeat = false) {
+    let prevented = false;
+    handleKeyDown({ code, target, repeat, preventDefault() { prevented = true; } });
+    return prevented;
+  }
+  try {
+    check('Production initial speed', initialSpeed, 6);
+    fixture();
+    check('Auto restart starts at 6', currentSpeed, 6);
+    updateGame(0);
+    check('Auto ON integrates one increment', currentSpeed, 6.001);
+    autoToggle.checked = false;
+    for (let i = 0; i < 100; i++) updateGame(0);
+    check('Auto OFF integrates constant speed', currentSpeed, 6.001);
+    autoToggle.checked = true;
+    updateGame(0);
+    check('Toggle ON resumes current speed', currentSpeed, 6.002);
+    for (const dt of [0, 1 / 120, 1 / 30, 0.05]) {
+      fixture();
+      updateGame(dt);
+      check(`Elapsed-time independence (${dt})`, currentSpeed, 6.001);
+      check(`Scoring uses elapsed time (${dt})`, distance, 6 * 60 * dt);
+    }
+    fixture();
+    for (let i = 1; i <= 7002; i++) {
+      updateGame(0);
+      if (i === 6999) check('Integration boundary 6999', currentSpeed, 12.999);
+      if (i === 7000) {
+        check('Integration boundary 7000', currentSpeed, 13);
+        check('Integration 7000 below threshold', currentSpeed < 13, true);
+      }
+      if (i === 7001) {
+        check('Integration boundary 7001', currentSpeed, 13.001);
+        check('Integration 7001 above threshold', currentSpeed > 13, true);
+      }
+      if (i === 7002) check('Integration threshold holds', currentSpeed, 13.001);
+    }
+    fixture(20);
+    obstacles = [{ x: 110, width: 22, height: 40 }];
+    updateGame(0.05);
+    check('Speed 20 / 50 ms crossing causes game-over', state === 'over', true);
+    check('Crossing collision does not score', distance, 0);
+    fixture();
+    obstacles = [{ x: 90, width: 22, height: 40 }];
+    updateGame(0);
+    check('Overlapping collision causes game-over', state === 'over', true);
+    check('Collision does not accelerate', currentSpeed, 6);
+    updateGame(0.05);
+    check('Game-over remains frozen', currentSpeed, 6);
+    check('Game-over score remains frozen', distance, 0);
+    fixture(20);
+    dinosaur.y = 100; // An airborne runner clears the same crossing obstacle.
+    obstacles = [{ x: 110, width: 22, height: 40 }];
+    updateGame(0.05);
+    check('Airborne crossing stays collision-free', state === 'playing', true);
+    fixture(12);
+    updateGame(0.05);
+    check('Long movement accelerates exactly once', currentSpeed, 12.001);
+    fixture(19, false);
+    resetGame();
+    check('Manual restart retains selected speed', currentSpeed, 19);
+    autoToggle.checked = true;
+    resetGame();
+    check('Auto restart resets selected speed', currentSpeed, 6);
+    distance = 1000;
+    resetGame();
+    check('Restart retains achieved best score', best, 100);
+    check('Restart resets current score', distance, 0);
+    for (let i = 0; i < 100; i++) resetGame();
+    check('Repeated restart retains best score', best, 100);
+    fixture();
+    state = 'ready';
+    updateGame(0.05);
+    check('Ready state does not accelerate', currentSpeed, 6);
+    fixture();
+    updateFrame(1000, true);
+    updateFrame(9000, true);
+    check('Hidden frame does not accelerate', currentSpeed, 6);
+    check('Hidden frame does not score', distance, 0);
+    resetFrameClock();
+    updateFrame(10000, false);
+    check('Visible resume has no movement catch-up', distance, 0);
+    check('Visible resume has one eligible increment', currentSpeed, 6.001);
+    fixture();
+    check('Focused Restart ArrowUp prevents scroll', key('ArrowUp', document.getElementById('restart')), true);
+    check('Focused Restart ArrowUp jumps', dinosaur.velocity, -650);
+    dinosaur.velocity = -100;
+    key('ArrowUp', canvas, true);
+    check('Repeated key does not retrigger jump', dinosaur.velocity, -100);
+    for (const code of ['Space', 'ArrowUp', 'Enter']) {
+      check(`Slider keeps native ${code}`, key(code, speedSlider), false);
+    }
+    check('Auto toggle keeps native Space', key('Space', autoToggle), false);
+    check('Button keeps native Space activation', key('Space', document.getElementById('restart')), false);
+    check('Button keeps native Enter activation', key('Enter', document.getElementById('restart')), false);
+    fixture();
+    activateRestart();
+    check('Restart action returns canvas focus', document.activeElement === canvas, true);
+    check('Canvas Space prevents default activation', key('Space'), true);
+    check('Canvas Space jumps', dinosaur.velocity, -650);
+    activateJump();
+    check('Jump action returns canvas focus', document.activeElement === canvas, true);
+    check('Canvas Enter prevents scrolling/default', key('Enter'), true);
+    check('Canvas Enter restarts without jumping', dinosaur.velocity, 0);
+    if (results.some(result => !result.passed)) {
+      throw new Error(JSON.stringify(results.filter(result => !result.passed)));
+    }
+    return results;
+  } finally {
+    ({ currentSpeed, state, obstacles, distance, best, spawnDistance, lastTime } = saved);
+    Object.assign(dinosaur, saved.dinosaur);
+    autoToggle.checked = saved.auto;
+    speedSlider.value = saved.slider;
+    speedValue.value = saved.display;
+    statusLabel.textContent = saved.status;
+    if (saved.focus && document.activeElement !== saved.focus) saved.focus.focus({ preventScroll: true });
+  }
+}
+
+document.getElementById('tests').addEventListener('click', () => {
+  try {
+    const results = [...runSpeedTests(), ...runIntegrationTests()];
+    document.getElementById('test-results').textContent = results.map(result =>
+      `PASS · ${result.name}: ${result.actual.toFixed(12)} (expected ${result.expected})`).join('\n');
+  } catch (error) {
+    document.getElementById('test-results').textContent = `FAIL · ${error.message}`;
+  }
+  canvas.focus({ preventScroll: true });
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
