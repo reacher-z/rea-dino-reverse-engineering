@@ -4,6 +4,10 @@ A small software investigation turned into a playable, self-contained dinosaur r
 
 The project was built to practice evidence-based investigation, precise behavioral reconstruction, and validation of AI-assisted code. Its central example is subtle: movement uses elapsed time, but speed increases once per eligible update. Preserving that distinction matters more than matching the original appearance.
 
+**[Live Demo](https://zhxunzh84.github.io/rea-dino-reverse-engineering/dino-demo.html)** · **[Source Code](https://github.com/zhxunzh84/rea-dino-reverse-engineering)**
+
+Play the game directly in your browser without installation.
+
 ## Technologies
 
 | Technology | Role |
@@ -98,6 +102,8 @@ python3 -m http.server 8000 --bind 127.0.0.1
 
 Then open [the local game](http://127.0.0.1:8000/dino-demo.html). Stop the server with Ctrl+C. Python is optional and is not part of the game runtime.
 
+**GitHub Pages deployment:** The published game is available at [https://zhxunzh84.github.io/rea-dino-reverse-engineering/dino-demo.html](https://zhxunzh84.github.io/rea-dino-reverse-engineering/dino-demo.html). GitHub Pages serves the self-contained `dino-demo.html` file directly; no installation is required to play.
+
 ## Testing and validation
 
 The recorded final implementation result is **67 passed, 0 failed**: 15 pure-function tests and 52 integration tests. Ten deliberately faulty, in-memory variants were rejected. Additional harness checks covered one RAF chain after repeated restart, state restoration, and hidden-page timing.
@@ -128,7 +134,7 @@ This project inspected available source code; it did not recover hidden propriet
 
 The independently authored project is licensed under the [MIT License](LICENSE), with `Copyright (c) 2026 Xun Zhang`.
 
-Upstream projects retain their own licensing and copyright: [REA's MIT license](https://github.com/morluto/rea/blob/main/LICENSE) belongs to its upstream copyright holder, and the [Chromium-derived T-Rex Runner's BSD-3-Clause license](https://github.com/wayou/t-rex-runner/blob/gh-pages/LICENSE) applies to its upstream material. This project's MIT license does not relicense the original source excerpts in the reverse-engineering report. Complete BSD repository terms and the original source-header attribution are supplied in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); retain that file with distributions containing those excerpts. REA is a development tool, not vendored project code. No repository publication or deployment is claimed.
+Upstream projects retain their own licensing and copyright: [REA's MIT license](https://github.com/morluto/rea/blob/main/LICENSE) belongs to its upstream copyright holder, and the [Chromium-derived T-Rex Runner's BSD-3-Clause license](https://github.com/wayou/t-rex-runner/blob/gh-pages/LICENSE) applies to its upstream material. This project's MIT license does not relicense the original source excerpts in the reverse-engineering report. Complete BSD repository terms and the original source-header attribution are supplied in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); retain that file with distributions containing those excerpts. REA is a development tool, not vendored project code.
 
 ## Third-Party Acknowledgments
 
